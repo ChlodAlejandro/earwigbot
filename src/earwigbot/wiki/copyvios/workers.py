@@ -494,7 +494,7 @@ class CopyvioWorkspace:
                     key = ".".join(urlparse(url).netloc.split(".")[-2:])
 
                 matchup = f"{key} -> {url}"
-                logmsg = f"enqueue(): %s %s"
+                logmsg = "enqueue(): %s %s"
                 if key in self._queues.sites:
                     self._logger.debug(logmsg % ("append", matchup))
                     self._queues.sites[key].append(source)
