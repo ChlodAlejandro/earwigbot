@@ -42,7 +42,8 @@ copyvios = [
     "tldextract >= 3.1.0",  # Getting domains for the multithreaded workers
 ]
 dev = [
-    "pytest >= 8.3.1"
+    "gitpython>=3.1.49",
+    "pytest >= 8.3.1",
 ]
 
 [project.urls]

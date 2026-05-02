@@ -301,10 +301,10 @@ class HTMLParser(SourceParser):
         """Clean a BeautifulSoup tree of invisible tags."""
         import bs4
 
-        def is_comment(text: bs4.element.Tag) -> bool:
+        def is_comment(text: str | None) -> bool:
             return isinstance(text, bs4.element.Comment)
 
-        for comment in soup.find_all(text=is_comment):
+        for comment in soup.find_all(string=is_comment):
             comment.extract()
         for tag in self.hidden_tags:
             for element in soup.find_all(tag):
