@@ -1,4 +1,4 @@
-EarwigBot v0.4.1 Documentation
+EarwigBot v0.4.2 Documentation
 ==============================
 
 EarwigBot_ is a Python bot that edits Wikipedia_ and interacts over IRC_.

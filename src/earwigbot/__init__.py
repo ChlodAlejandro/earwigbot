@@ -40,9 +40,9 @@ __all__ = [
 __author__ = "Ben Kurtovic"
 __copyright__ = "Copyright (C) 2009-2026 Ben Kurtovic"
 __license__ = "MIT License"
-__version__ = "0.4.1"
+__version__ = "0.4.2.dev0"
 __email__ = "ben.kurtovic@gmail.com"
-__release__ = True
+__release__ = False
 
 if not __release__:
 
