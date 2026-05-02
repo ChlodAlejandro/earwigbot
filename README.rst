@@ -57,9 +57,13 @@ You can install the development version of the bot::
 
     git clone https://github.com/earwig/earwigbot.git
     cd earwigbot
-    python3 -m venv venv
-    . venv/bin/activate
+    python3 -m venv .venv
+    . .venv/bin/activate
     pip install -e '.[crypto,sql,copyvios,dev]'
+
+Or with `uv`_::
+
+    uv sync --all-extras
 
 To run the bot's unit tests, run ``pytest`` (requires the ``dev``
 dependencies). Coverage is currently rather incomplete.
@@ -180,6 +184,7 @@ docstrings`_ to learn how to use it in a more hands-on fashion. For reference,
 .. _Python Package Index:           https://pypi.python.org/pypi/earwigbot
 .. _Toolforge:                      https://wikitech.wikimedia.org/wiki/Portal:Toolforge
 .. _this StackOverflow post:        https://stackoverflow.com/questions/6504810/how-to-install-lxml-on-ubuntu/6504860#6504860
+.. _uv:                             https://docs.astral.sh/uv/
 .. _documentation:                  https://pythonhosted.org/earwigbot/
 .. _earwigbot.bot.Bot:              https://github.com/earwig/earwigbot/blob/main/earwigbot/bot.py
 .. _earwigbot.config.BotConfig:     https://github.com/earwig/earwigbot/blob/main/earwigbot/config.py

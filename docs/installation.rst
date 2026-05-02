@@ -40,6 +40,10 @@ You can install the development version of the bot::
     . venv/bin/activate
     pip install -e '.[crypto,sql,copyvios,dev]'
 
+Or with `uv`_::
+
+    uv sync --all-extras
+
 To run the bot's unit tests, run :command:`pytest` (requires the ``dev``
 dependencies). Coverage is currently rather incomplete.
 
@@ -48,3 +52,4 @@ dependencies). Coverage is currently rather incomplete.
 .. _Python Package Index:     https://pypi.python.org/pypi/earwigbot
 .. _Toolforge:                https://wikitech.wikimedia.org/wiki/Portal:Toolforge
 .. _this StackOverflow post:  https://stackoverflow.com/questions/6504810/how-to-install-lxml-on-ubuntu/6504860#6504860
+.. _uv:                       https://docs.astral.sh/uv/
