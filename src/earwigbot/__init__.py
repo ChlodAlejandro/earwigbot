@@ -1,4 +1,4 @@
-# Copyright (C) 2009-2024 Ben Kurtovic <ben.kurtovic@gmail.com>
+# Copyright (C) 2009-2026 Ben Kurtovic <ben.kurtovic@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -38,11 +38,11 @@ __all__ = [
     "wiki",
 ]
 __author__ = "Ben Kurtovic"
-__copyright__ = "Copyright (C) 2009-2024 Ben Kurtovic"
+__copyright__ = "Copyright (C) 2009-2026 Ben Kurtovic"
 __license__ = "MIT License"
-__version__ = "0.4.1.dev0"
+__version__ = "0.4.1"
 __email__ = "ben.kurtovic@gmail.com"
-__release__ = False
+__release__ = True
 
 if not __release__:
 
