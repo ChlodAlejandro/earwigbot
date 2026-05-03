@@ -879,6 +879,7 @@ class Page:
         max_queries: int = 15,
         max_time: float = -1,
         no_searches: bool = False,
+        no_eds: bool = False,
         no_links: bool = False,
         short_circuit: bool = True,
         degree: int = DEFAULT_DEGREE,
@@ -929,6 +930,7 @@ class Page:
         result = checker.run_check(
             max_queries=max_queries,
             no_searches=no_searches,
+            no_eds=no_eds,
             no_links=no_links,
             short_circuit=short_circuit,
         )

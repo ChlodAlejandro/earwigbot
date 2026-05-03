@@ -280,6 +280,12 @@ class SearchQueryError(CopyvioCheckError):
     <earwigbot.wiki.copyvios.CopyvioMixIn.copyvio_check>`.
     """
 
+class EDSQueryError(CopyvioCheckError):
+    """Some error occurred while doing an EDS query.
+
+    Raised by :py:meth:`Page.copyvio_check
+    <earwigbot.wiki.copyvios.CopyvioMixIn.copyvio_check>`.
+    """
 
 class ParserExclusionError(CopyvioCheckError):
     """A content parser detected that the given source should be excluded.

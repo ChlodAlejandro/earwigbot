@@ -36,21 +36,26 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import warnings
 from collections.abc import Callable, Container
 from dataclasses import dataclass
 from http.client import HTTPException
 from typing import Any
 from urllib.error import URLError
 
+from earwigbot import exceptions
+
 from earwigbot.exceptions import ParserExclusionError, ParserRedirectError
+from earwigbot.wiki.copyvios.eds import EDSHelper
 from earwigbot.wiki.copyvios.markov import (
     DEFAULT_DEGREE,
     MarkovChain,
     MarkovChainIntersection,
     MarkovChainUnion,
 )
-from earwigbot.wiki.copyvios.parsers import ParserArgs, SourceParser, get_parser
+from earwigbot.wiki.copyvios.parsers import ParserArgs, get_parser
 from earwigbot.wiki.copyvios.result import CopyvioCheckResult, CopyvioSource
+from earwigbot.wiki.copyvios.types import OpenedURL, Source
 
 INCLUDE_THRESHOLD = 0.15
 
@@ -107,12 +112,6 @@ def localize() -> None:
     _is_globalized = False
 
 
-@dataclass(frozen=True)
-class OpenedURL:
-    content: bytes
-    parser_class: type[SourceParser]
-
-
 SourceQueue = collections.deque[CopyvioSource]
 UnassignedQueue = queue.Queue[
     tuple[str, SourceQueue] | tuple[type[StopIteration], None]
@@ -141,6 +140,7 @@ class _CopyvioWorker:
         self._site: str | None = None
         self._queue: SourceQueue | None = None
         self._search_config: dict[str, Any] | None = None
+        self._eds_helper: EDSHelper | None = None
         self._opener = urllib.request.build_opener()
         self._logger = logging.getLogger("earwigbot.wiki.cvworker." + name)
 
@@ -175,6 +175,41 @@ class _CopyvioWorker:
             return url, True
         return url, False
 
+    def _handle_eds_url(
+        self,
+        url: str,
+        parsed: urllib.parse.ParseResult,
+    ) -> OpenedURL | None:
+        """Entirely handle an EBSCO Discovery Service URL."""
+        if self._eds_helper is None:
+            return None
+        if not parsed.netloc in self._eds_helper.domains:
+            return None
+
+        # This is an EDS URL. Let's extract the details from it.
+        # An EDS PLink usually follows the format: `https://{domain}/login?...&url=https://search.ebscohost.com/...?direct=true&...&db=...&AN=...`
+        # We specifically want the AN and the database ID.
+        plink_query = urllib.parse.parse_qs(parsed.query)
+        if 'db' not in plink_query or 'AN' not in plink_query:
+            if 'url' not in plink_query:
+                raise exceptions.EDSQueryError(f"Could not parse EDS PLink: {url}")
+            plink_query = urllib.parse.parse_qs(urllib.parse.urlparse(plink_query['url'][0]).query)
+        if 'db' not in plink_query or 'AN' not in plink_query:
+            raise exceptions.EDSQueryError(f"Could not parse EDS PLink: {url}")
+        else:
+            database_id = plink_query['db'][0]
+            accession_number = plink_query['AN'][0]
+            if self._auth_token is not None and self._session_token is not None:
+                return self._eds_helper.get_full_text(
+                    self._auth_token,
+                    self._session_token,
+                    database_id,
+                    accession_number
+                )
+            else:
+                return None
+
+
     def _open_url_raw(
         self,
         url: str,
@@ -186,6 +221,11 @@ class _CopyvioWorker:
         None will be returned for URLs that cannot be read for whatever reason.
         """
         parsed = urllib.parse.urlparse(url)
+
+        # Forward to EDS helper if it's an EDS domain.
+        if self._eds_helper is not None and parsed.netloc in self._eds_helper.domains:
+            return self._handle_eds_url(url, parsed)
+
         extra_headers: dict[str, str] = {}
         url, _ = self._try_map_proxy_url(url, parsed, extra_headers)
         request = urllib.request.Request(url, headers=extra_headers)
@@ -256,6 +296,9 @@ class _CopyvioWorker:
         decompressing, None will be returned.
         """
         self._search_config = source.search_config
+        self._eds_helper = source.eds_helper
+        if self._eds_helper is not None:
+            self._auth_token, self._session_token = self._eds_helper.start_session()
         if source.headers:
             self._opener.addheaders = source.headers
 
@@ -269,6 +312,7 @@ class _CopyvioWorker:
         try:
             return parser.parse()
         except ParserRedirectError as exc:
+            self._logger.debug("Hit redirect: %s -> %s", source.url, exc.url.decode("utf8"))
             if redirects >= _MAX_REDIRECTS:
                 return None
             source.url = exc.url.decode("utf8")
@@ -337,8 +381,8 @@ class _CopyvioWorker:
             self._logger.debug("Source excluded by content parser")
             source.skipped = source.excluded = True
             source.finish_work()
-        except Exception:
-            self._logger.exception("Uncaught exception in worker")
+        except Exception as exc:
+            self._logger.exception("Uncaught exception in worker", exc_info=exc)
             source.skip()
             source.finish_work()
         else:
@@ -382,7 +426,8 @@ class CopyvioWorkspace:
         short_circuit: bool = True,
         parser_args: ParserArgs | None = None,
         exclusion_callback: Callable[[str], bool] | None = None,
-        config: dict[str, Any] | None = None,
+        search_config: dict[str, Any] | None = None,
+        eds_helper: EDSHelper | None = None,
         degree: int = DEFAULT_DEGREE,
     ) -> None:
         self.sources: list[CopyvioSource] = []
@@ -394,7 +439,7 @@ class CopyvioWorkspace:
         self._min_confidence = min_confidence
         self._start_time = time.time()
         self._until = (self._start_time + max_time) if max_time > 0 else None
-        self._handled_urls: set[str] = set()
+        self._handled_sources: set[Source] = set()
         self._finish_lock = threading.Lock()
         self._short_circuit = short_circuit
         self._source_args = {
@@ -402,7 +447,8 @@ class CopyvioWorkspace:
             "headers": headers,
             "timeout": url_timeout,
             "parser_args": parser_args,
-            "search_config": config,
+            "search_config": search_config,
+            "eds_helper": eds_helper
         }
         self._exclusion_callback = exclusion_callback
         self._degree = degree
@@ -463,47 +509,54 @@ class CopyvioWorkspace:
                 source.skip()
             self.finished = True
 
-    def enqueue(self, urls: list[str]) -> None:
-        """Put a list of URLs into the various worker queues."""
-        for url in urls:
+    def enqueue_sources(self, sources: list[Source]) -> None:
+        """Put a list of URLs into the worker queues."""
+        for source in sources:
             with self._queues.lock:
-                if url in self._handled_urls:
+                if source.url in self._handled_sources:
                     continue
-                self._handled_urls.add(url)
+                self._handled_sources.add(source.url)
 
-                source = CopyvioSource(url=url, **self._source_args)
-                self.sources.append(source)
+                cv_source = CopyvioSource(url=source.url, title=source.title, **self._source_args)
+                self.sources.append(cv_source)
 
-                if self._exclusion_callback and self._exclusion_callback(url):
-                    self._logger.debug(f"enqueue(): exclude {url}")
-                    source.excluded = True
-                    source.skip()
+                if self._exclusion_callback and self._exclusion_callback(source.url):
+                    self._logger.debug(f"enqueue(): exclude {source.url}")
+                    cv_source.excluded = True
+                    cv_source.skip()
                     continue
                 if self._short_circuit and self.finished:
-                    self._logger.debug(f"enqueue(): auto-skip {url}")
-                    source.skip()
+                    self._logger.debug(f"enqueue(): auto-skip {source.url}")
+                    cv_source.skip()
                     continue
 
                 try:
                     import tldextract
 
-                    key = tldextract.extract(url).registered_domain
+                    key = tldextract.extract(source.url).registered_domain
                 except ModuleNotFoundError:  # Fall back on very naive method
                     from urllib.parse import urlparse
 
-                    key = ".".join(urlparse(url).netloc.split(".")[-2:])
+                    key = ".".join(urlparse(source.url).netloc.split(".")[-2:])
 
-                matchup = f"{key} -> {url}"
+                matchup = f"{key} -> {source.url}"
                 logmsg = "enqueue(): %s %s"
                 if key in self._queues.sites:
                     self._logger.debug(logmsg % ("append", matchup))
-                    self._queues.sites[key].append(source)
+                    self._queues.sites[key].append(cv_source)
                 else:
                     self._logger.debug(logmsg % ("new", matchup))
                     q: SourceQueue = collections.deque()
-                    q.append(source)
+                    q.append(cv_source)
                     self._queues.sites[key] = q
                     self._queues.unassigned.put((key, q))
+
+
+    @warnings.deprecated("Use enqueue_sources instead")
+    def enqueue(self, urls: list[str]) -> None:
+        """Put a list of URLs into the various worker queues."""
+        self.enqueue_sources(list(Source(url, None) for url in urls))
+
 
     def compare(self, source: CopyvioSource, source_chain: MarkovChain | None) -> None:
         """Compare a source to the article; call _finish_early if necessary."""

@@ -28,6 +28,7 @@ import urllib.parse
 from threading import Event
 from typing import Any
 
+from earwigbot.wiki.copyvios.eds import EDSHelper
 from earwigbot.wiki.copyvios.markov import (
     EMPTY,
     EMPTY_INTERSECTION,
@@ -54,6 +55,7 @@ class CopyvioSource:
     - :py:attr:`chains`:     a 2-tuple of the source chain and the delta chain
     - :py:attr:`skipped`:    whether this URL was skipped during the check
     - :py:attr:`excluded`:   whether this URL was in the exclusions list
+    - :py:attr:`title`       the title of the source, if known
     """
 
     def __init__(
@@ -64,13 +66,17 @@ class CopyvioSource:
         timeout: float = 5,
         parser_args: ParserArgs | None = None,
         search_config: dict[str, Any] | None = None,
+        eds_helper: EDSHelper | None = None,
+        title: str | None = None
     ) -> None:
         self.workspace = workspace
         self.url = url
+        self.title = title
         self.headers = headers
         self.timeout = timeout
         self.parser_args = parser_args
         self.search_config = search_config
+        self.eds_helper = eds_helper
 
         self.confidence = 0.0
         self.chains = (EMPTY, EMPTY_INTERSECTION)
@@ -84,17 +90,18 @@ class CopyvioSource:
     def __repr__(self) -> str:
         """Return the canonical string representation of the source."""
         return (
-            f"CopyvioSource(url={self.url!r}, confidence={self.confidence!r}, "
+            f"CopyvioSource(url/title={(self.title or self.url)!r}, "
+            f"confidence={self.confidence!r}, "
             f"skipped={self.skipped!r}, excluded={self.excluded!r})"
         )
 
     def __str__(self) -> str:
         """Return a nice string representation of the source."""
         if self.excluded:
-            return f"<CopyvioSource ({self.url}, excluded)>"
+            return f"<CopyvioSource ({self.title or self.url}, excluded)>"
         if self.skipped:
-            return f"<CopyvioSource ({self.url}, skipped)>"
-        return f"<CopyvioSource ({self.url} with {self.confidence} conf)>"
+            return f"<CopyvioSource ({self.title or self.url}, skipped)>"
+        return f"<CopyvioSource ({self.title or self.url} with {self.confidence} conf)>"
 
     @property
     def domain(self) -> str | None:
@@ -222,6 +229,11 @@ class CopyvioCheckResult:
     def url(self) -> str | None:
         """The URL of the best source, or None if no sources exist."""
         return self.best.url if self.best else None
+
+    @property
+    def title(self) -> str | None:
+        """The title of the best source, or None if no sources exist or the source does not have a title."""
+        return self.best.title if self.best else None
 
     def get_log_message(self, title: str) -> str:
         """Build a relevant log message for this copyvio check result."""

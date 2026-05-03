@@ -32,8 +32,11 @@ import functools
 import logging
 import time
 import typing
+import urllib.request
 from collections.abc import Callable
+from urllib.request import OpenerDirector
 
+from earwigbot.wiki.copyvios.eds import EDSHelper
 from earwigbot.wiki.copyvios.exclusions import ExclusionsDB
 from earwigbot.wiki.copyvios.markov import DEFAULT_DEGREE, MarkovChain
 from earwigbot.wiki.copyvios.parsers import ArticleParser, ParserArgs
@@ -64,7 +67,11 @@ class CopyvioChecker:
     ) -> None:
         self._page = page
         self._site = page.site
-        self._config = page.site._search_config
+        self._search_config = page.site._search_config
+        self._eds_helper = None if page.site._eds_config is None else EDSHelper(
+            page.site._eds_config,
+            urllib.request.build_opener()
+        )
         self._min_confidence = min_confidence
         self._max_time = max_time
         self._degree = degree
@@ -78,17 +85,17 @@ class CopyvioChecker:
         self._parser = ArticleParser(
             self._page.get(),
             lang=self._site.lang,
-            nltk_dir=self._config["nltk_dir"],
+            nltk_dir=self._search_config["nltk_dir"],
         )
         self._article = MarkovChain(self._parser.strip(), degree=self._degree)
 
     @functools.cached_property
     def _searcher(self) -> SearchEngine:
-        return get_search_engine(self._config, self._headers)
+        return get_search_engine(self._search_config, self._headers)
 
     @property
     def _exclusions_db(self) -> ExclusionsDB | None:
-        return self._config.get("exclusions_db")
+        return self._search_config.get("exclusions_db")
 
     @property
     def article_chain(self) -> MarkovChain:
@@ -104,6 +111,7 @@ class CopyvioChecker:
         *,
         max_queries: int = 15,
         no_searches: bool = False,
+        no_eds: bool = False,
         no_links: bool = False,
         short_circuit: bool = True,
     ) -> CopyvioCheckResult:
@@ -122,7 +130,8 @@ class CopyvioChecker:
             short_circuit=short_circuit,
             parser_args=parser_args,
             exclusion_callback=self._get_exclusion_callback(),
-            config=self._config,
+            search_config=self._search_config,
+            eds_helper=self._eds_helper,
             degree=self._degree,
         )
 
@@ -131,7 +140,8 @@ class CopyvioChecker:
 
         if not no_links:
             workspace.enqueue(self._parser.get_links())
-        num_queries = 0
+        num_queries_search = 0
+        num_queries_eds = 0
         if not no_searches:
             chunks = self._parser.chunk(max_queries)
             for chunk in chunks:
@@ -143,11 +153,24 @@ class CopyvioChecker:
                     f"for {chunk!r}"
                 )
                 workspace.enqueue(self._searcher.search(chunk))
-                num_queries += 1
+                num_queries_search += 1
                 time.sleep(1)  # TODO: Check whether this is needed
+        if not no_eds and self._eds_helper is not None:
+            chunks = self._parser.chunk(max_queries)
+            for chunk in chunks:
+                if short_circuit and workspace.finished:
+                    workspace.possible_miss = True
+                    break
+                self._logger.debug(
+                    f"[[{self._page.title}]] -> querying EDS for {chunk!r}"
+                )
+                auth_token, session_token = self._eds_helper.start_session()
+                workspace.enqueue_sources(self._eds_helper.search(auth_token, session_token, chunk))
+                self._eds_helper.end_session(auth_token, session_token)
+                num_queries_eds += 1
 
         workspace.wait()
-        return workspace.get_result(num_queries)
+        return workspace.get_result(num_queries_search)
 
     def run_compare(self, urls: list[str]) -> CopyvioCheckResult:
         workspace = CopyvioWorkspace(
@@ -159,7 +182,8 @@ class CopyvioChecker:
             url_timeout=self._max_time,
             num_workers=min(len(urls), 8),
             short_circuit=False,
-            config=self._config,
+            search_config=self._search_config,
+            eds_helper=self._eds_helper,
             degree=self._degree,
         )
 

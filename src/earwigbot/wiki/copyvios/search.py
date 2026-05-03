@@ -38,17 +38,17 @@ from typing import Any
 from urllib.error import URLError
 
 from earwigbot import exceptions
+from earwigbot.wiki.copyvios.external import ExternalService
 
 
-class SearchEngine(ABC):
+class SearchEngine(ExternalService):
     """Base class for a simple search engine interface."""
 
-    name = "Base"
+    name = "SearchEngine"
 
-    def __init__(
-        self, cred: dict[str, str], opener: urllib.request.OpenerDirector
-    ) -> None:
+    def __init__(self, cred: dict[str, str], opener: urllib.request.OpenerDirector) -> None:
         """Store credentials (*cred*) and *opener* for searching later on."""
+        super().__init__(opener)
         self.cred = cred
         self.opener = opener
         self.count = 5
@@ -60,27 +60,6 @@ class SearchEngine(ABC):
     def __str__(self) -> str:
         """Return a nice string representation of the search engine."""
         return f"<{self.__class__.__name__}>"
-
-    def _open(self, url: str) -> bytes:
-        """Open a URL (like urlopen) and try to return its contents."""
-        try:
-            response = self.opener.open(url)
-            result = response.read()
-        except (OSError, URLError) as exc:
-            raise exceptions.SearchQueryError(f"{self.name} Error: {exc}")
-
-        if response.headers.get("Content-Encoding") == "gzip":
-            stream = io.BytesIO(result)
-            gzipper = gzip.GzipFile(fileobj=stream)
-            result = gzipper.read()
-
-        code = response.getcode()
-        if code != 200:
-            raise exceptions.SearchQueryError(
-                f"{self.name} Error: got response code '{code}':\n{result}'"
-            )
-
-        return result
 
     @staticmethod
     def requirements() -> list[str]:

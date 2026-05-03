@@ -149,6 +149,7 @@ class Site:
         wait_between_queries: int = 1,
         logger: Logger | None = None,
         search_config: dict[str, Any] | None = None,
+        eds_config: dict[str, Any] | None = None,
     ) -> None:
         """
         Constructor for new Site instances.
@@ -202,6 +203,10 @@ class Site:
             self._search_config = search_config
         else:
             self._search_config = {}
+        if eds_config:
+            self._eds_config = eds_config
+        else:
+            self._eds_config = {}
 
         # Set up cookiejar and requests session for making API queries:
         if cookiejar is not None:

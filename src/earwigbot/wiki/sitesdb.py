@@ -228,6 +228,7 @@ class SitesDB:
         wait_between_queries = config.wiki.get("waitTime", 1)
         logger = self._logger.getChild(name)
         search_config = config.wiki.get("search", OrderedDict()).copy()
+        eds_config = config.wiki.get("eds", OrderedDict()).copy()
 
         if user_agent:
             user_agent = user_agent.replace("$1", __version__)
@@ -264,6 +265,7 @@ class SitesDB:
             wait_between_queries=wait_between_queries,
             logger=logger,
             search_config=search_config,
+            eds_config=eds_config
         )
 
     def _get_site_name_from_sitesdb(self, project: str, lang: str) -> str | None:

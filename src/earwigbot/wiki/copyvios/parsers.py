@@ -36,11 +36,12 @@ from typing import Any, ClassVar, Literal, TypedDict
 import mwparserfromhell
 
 from earwigbot.exceptions import ParserExclusionError, ParserRedirectError
+from earwigbot.wiki.copyvios.xmlutils import XMLUtils
 
 if typing.TYPE_CHECKING:
     import bs4
 
-    from earwigbot.wiki.copyvios.workers import OpenedURL
+    from earwigbot.wiki.copyvios.types import OpenedURL
 
 
 class ArticleParser:
@@ -264,6 +265,18 @@ class SourceParser(ABC):
     def parse(self) -> str: ...
 
 
+class XMLParser(SourceParser):
+
+    TYPE = "XML"
+    hidden_tags = ["script", "style"]
+
+    def parse(self) -> str:
+        soup = XMLUtils.get_soup(self.text)
+        if soup is None:
+            return ""
+        return XMLUtils.clean_soup(self.hidden_tags, soup)
+
+
 class HTMLParser(SourceParser):
     """A parser that can extract the text from an HTML document."""
 
@@ -286,31 +299,6 @@ class HTMLParser(SourceParser):
 
         if soup.find_all(href=func) or soup.find_all(src=func):
             raise ParserExclusionError()
-
-    @staticmethod
-    def _get_soup(text: bytes) -> bs4.BeautifulSoup:
-        """Parse some text using BeautifulSoup."""
-        import bs4
-
-        try:
-            return bs4.BeautifulSoup(text, "lxml")
-        except ValueError:
-            return bs4.BeautifulSoup(text)
-
-    def _clean_soup(self, soup: bs4.element.Tag) -> str:
-        """Clean a BeautifulSoup tree of invisible tags."""
-        import bs4
-
-        def is_comment(text: str | None) -> bool:
-            return isinstance(text, bs4.element.Comment)
-
-        for comment in soup.find_all(string=is_comment):
-            comment.extract()
-        for tag in self.hidden_tags:
-            for element in soup.find_all(tag):
-                element.extract()
-
-        return "\n".join(s.replace("\n", " ") for s in soup.stripped_strings)
 
     def _open(self, url: str, **kwargs: Any) -> bytes | None:
         """Try to read a URL. Return None if it couldn't be read."""
@@ -347,10 +335,10 @@ class HTMLParser(SourceParser):
             text = parsed["entry"]["content"]["$t"]
         except KeyError:
             return ""
-        soup = self._get_soup(text)
+        soup = XMLUtils.get_soup(text)
         if not soup.body:
             return ""
-        return self._clean_soup(soup.body)
+        return XMLUtils.clean_soup(self.hidden_tags, soup.body)
 
     def parse(self) -> str:
         """
@@ -362,7 +350,7 @@ class HTMLParser(SourceParser):
         import bs4
 
         url = urllib.parse.urlparse(self.url) if self.url else None
-        soup = self._get_soup(self.text)
+        soup = XMLUtils.get_soup(self.text)
         if not soup.body:
             # No <body> tag present in HTML -> # no scrapable content
             # (possibly JS or <iframe> magic):
@@ -376,7 +364,7 @@ class HTMLParser(SourceParser):
             if isinstance(playback, bs4.element.Tag) and "src" in playback.attrs:
                 raise ParserRedirectError(playback.attrs["src"])
 
-        content = self._clean_soup(body)
+        content = XMLUtils.clean_soup(self.hidden_tags, body)
 
         if url and url.netloc.endswith(".blogspot.com") and not content:
             content = self._load_from_blogspot(url)
@@ -432,6 +420,7 @@ class PlainTextParser(SourceParser):
 
 _CONTENT_TYPES: dict[str, type[SourceParser]] = {
     "text/html": HTMLParser,
+    "text/xml": XMLParser,
     "application/xhtml+xml": HTMLParser,
     "application/pdf": PDFParser,
     "application/x-pdf": PDFParser,
@@ -446,6 +435,14 @@ def get_parser(content_type: str) -> type[SourceParser] | None: ...
 @typing.overload
 def get_parser(
     content_type: Literal["text/plain"] = "text/plain",
+) -> type[SourceParser]: ...
+@typing.overload
+def get_parser(
+    content_type: Literal["text/xml"] = "text/xml",
+) -> type[SourceParser]: ...
+@typing.overload
+def get_parser(
+    content_type: Literal["application/pdf"] = "application/pdf",
 ) -> type[SourceParser]: ...
 
 
